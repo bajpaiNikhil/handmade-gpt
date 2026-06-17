@@ -10,7 +10,7 @@ No `nn.MultiheadAttention`, no magic. Follow the build →**
 A five-world campaign from a blank tensor to an on-device language model.
 
 ### W1 — The Skeleton *(data → bigram → first attention head)*
-- [ ] Day 1 — Setup + data pipeline
+- [x] Day 1 — Setup + data pipeline
 - [ ] Day 2 — Bigram model
 - [ ] Day 3 — Train loop + read the loss
 - [ ] Day 4 — Weighted-average-of-the-past trick
