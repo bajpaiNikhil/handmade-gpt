@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPT build tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Archivo:wght@600;700;800&display=swap');
+
+  :root {
+    --bg: #0c0d10; --panel: #15171c; --panel-2: #1b1e25; --line: #2a2e38;
+    --ink: #e7e9ee; --ink-dim: #9aa0ad; --ink-faint: #5b616e;
+    --amber: #e8a33d; --ember: #ee4c2c; --done: #3ddc84;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); padding: 16px; font-family: 'JetBrains Mono', monospace; }
+  #root {
+    color: var(--ink); background: var(--bg); border-radius: 14px;
+    overflow: hidden; border: 1px solid var(--line); max-width: 720px; margin: 0 auto;
+  }
+  .head {
+    padding: 26px 26px 22px; border-bottom: 1px solid var(--line);
+    background: radial-gradient(120% 140% at 100% 0%, rgba(238,76,44,0.10), transparent 55%), var(--panel);
+  }
+  .eyebrow { font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 12px; }
+  .title { font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 23px; line-height: 1.15; letter-spacing: -0.01em; }
+  .title .accent { color: var(--ember); }
+  .sub { margin-top: 8px; font-size: 12.5px; color: var(--ink-dim); line-height: 1.5; }
+  .loss { margin-top: 22px; display: flex; align-items: flex-end; gap: 18px; }
+  .loss-label { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
+  .loss-val { font-weight: 800; font-size: 34px; line-height: 1; color: var(--amber); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .loss-val .unit { font-size: 14px; color: var(--ink-faint); font-weight: 500; }
+  .loss-bar-wrap { flex: 1; padding-bottom: 4px; }
+  .loss-bar { height: 8px; border-radius: 6px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--line); }
+  .loss-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--ember), var(--amber)); border-radius: 6px; transition: width 0.5s cubic-bezier(.2,.8,.2,1); }
+  .loss-meta { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--ink-faint); margin-top: 7px; }
+  .body { padding: 10px 16px 20px; }
+  .phase { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); padding: 22px 10px 10px; display: flex; align-items: center; gap: 10px; }
+  .phase::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .row { display: flex; gap: 14px; align-items: flex-start; padding: 13px 12px; border-radius: 10px; cursor: pointer; transition: background 0.15s; border: 1px solid transparent; }
+  .row:hover { background: var(--panel); }
+  .row:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .box { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px; border: 1.5px solid var(--ink-faint); border-radius: 6px; display: grid; place-items: center; font-size: 13px; color: var(--bg); transition: all 0.18s; }
+  .row.done .box { background: var(--done); border-color: var(--done); }
+  .row.done .box::after { content: '\2713'; font-weight: 800; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-top { display: flex; align-items: baseline; gap: 10px; }
+  .day { font-weight: 800; font-size: 13px; color: var(--ink); flex: 0 0 auto; }
+  .row.done .day { color: var(--ink-faint); }
+  .what { font-size: 13px; color: var(--ink); font-weight: 500; }
+  .row.done .what { color: var(--ink-faint); text-decoration: line-through; text-decoration-color: var(--ink-faint); }
+  .end { font-size: 11.5px; color: var(--ink-dim); margin-top: 4px; line-height: 1.5; }
+  .end .arrow { color: var(--ink-faint); }
+  .row.done .end { color: var(--ink-faint); }
+  .tag { display: inline-block; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ember); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; margin-left: auto; flex: 0 0 auto; }
+  .foot { border-top: 1px solid var(--line); padding: 16px 26px; display: flex; justify-content: space-between; align-items: center; background: var(--panel); font-size: 11.5px; color: var(--ink-dim); }
+  .reset { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-faint); background: none; border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; cursor: pointer; transition: all 0.15s; }
+  .reset:hover { color: var(--ember); border-color: var(--ember); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const PLAN = [
+  { phase: "Phase 1 — to a working attention head" },
+  { d: "Day 1", t: "Setup + data", e: "Load tiny Shakespeare, build char vocab (stoi/itos), encode to tensor, train/val split, write get_batch.", end: "Can pull a random (x,y) batch.", tag: "no GPU" },
+  { d: "Day 2", t: "Bigram model", e: "nn.Embedding as a lookup table, forward pass, cross-entropy loss, a generate() loop.", end: "Training loop runs, emits garbage. Skeleton exists." },
+  { d: "Day 3", t: "Train it + read the loss", e: "Train bigram properly, add estimate_loss with torch.no_grad.", end: "You know why loss starts near 4.17 (−ln 1/65)." },
+  { d: "Day 4", t: "Weighted average of the past", e: "v1→v2→v3: averaging past tokens via a lower-triangular matmul. No learned weights yet.", end: "You get why attention is weighted aggregation." },
+  { d: "Day 5", t: "One self-attention head", e: "Hand-type Q,K,V; compute q@k.T/√d, masked_fill with tril, softmax, @v.", end: "A single head works. The leap.", tag: "core" },
+  { phase: "Phase 2 — full block, then scale" },
+  { d: "Day 6", t: "Multi-head attention", e: "Several heads in parallel, concat, project. All hand-typed.", end: "Multi-head works." },
+  { d: "Day 7", t: "The FeedForward (MLP)", e: "Add the per-token MLP. Mental model: attention communicates, MLP computes.", end: "Block has both halves." },
+  { d: "Day 8", t: "Residual connections", e: "Residuals + projection back into the residual stream. Why deep stacks need them.", end: "Gradients flow through depth." },
+  { d: "Day 9", t: "LayerNorm (pre-norm)", e: "Hand-written LayerNorm, placed pre-norm. Stays LN for now — RMSNorm is Phase 3.", end: "Training stabilizes." },
+  { d: "Day 10", t: "Assemble the Block", e: "Wire Block, stack N of them, add dropout.", end: "A real, complete transformer.", tag: "milestone" },
+  { d: "Day 11", t: "Scale the knobs", e: "Bigger n_embd, more heads/layers, train longer on MPS.", end: "Shakespeare-flavored text that scans.", tag: "ship" }
+];
+const DAYS = PLAN.filter(p => p.d);
+const TOTAL = DAYS.length;
+const START_LOSS = 4.17, FLOOR_LOSS = 1.48;
+const KEY = 'gpt_tracker_done';
+let done = {};
+
+async function load() {
+  try { const r = await window.storage.get(KEY); if (r && r.value) done = JSON.parse(r.value); }
+  catch (e) { done = {}; }
+  render();
+}
+async function persist() {
+  try { await window.storage.set(KEY, JSON.stringify(done)); } catch (e) { console.error(e); }
+}
+function toggle(d) { done[d] = !done[d]; persist(); render(); }
+function reset() { done = {}; persist(); render(); }
+
+function render() {
+  const count = DAYS.filter(d => done[d.d]).length;
+  const pct = count / TOTAL;
+  const loss = (START_LOSS - (START_LOSS - FLOOR_LOSS) * pct).toFixed(2);
+  const rows = PLAN.map((item) => {
+    if (item.phase) return '<div class="phase">' + item.phase + '</div>';
+    const isDone = !!done[item.d];
+    return '<div class="row' + (isDone ? ' done' : '') + '" role="checkbox" tabindex="0" aria-checked="' + isDone + '" data-day="' + item.d + '">' +
+      '<div class="box"></div>' +
+      '<div class="row-main"><div class="row-top">' +
+        '<span class="day">' + item.d + '</span>' +
+        '<span class="what">' + item.t + '</span>' +
+        (item.tag ? '<span class="tag">' + item.tag + '</span>' : '') +
+      '</div>' +
+      '<div class="end">' + item.e + ' <span class="arrow">&rarr; ' + item.end + '</span></div>' +
+      '</div></div>';
+  }).join('');
+
+  document.getElementById('root').innerHTML =
+    '<div class="head">' +
+      '<div class="eyebrow">build log // decoder-only transformer</div>' +
+      '<div class="title">Building a <span class="accent">classic GPT</span> from scratch</div>' +
+      '<div class="sub">Every layer hand-typed on PyTorch tensors. Tiny Shakespeare, char-level, M4 Pro / MPS. 1 hr a day.</div>' +
+      '<div class="loss">' +
+        '<div class="loss-block"><div class="loss-label">val loss</div>' +
+        '<div class="loss-val">' + loss + '<span class="unit"> nats</span></div></div>' +
+        '<div class="loss-bar-wrap"><div class="loss-bar"><div class="loss-fill" style="width:' + (pct*100) + '%"></div></div>' +
+        '<div class="loss-meta"><span>' + count + ' / ' + TOTAL + ' sessions</span>' +
+        '<span>' + (count === TOTAL ? 'it scans ✓' : (TOTAL - count) + ' to go') + '</span></div></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="body">' + rows + '</div>' +
+    '<div class="foot"><span>Phase 3 next: RoPE &middot; RMSNorm &middot; SwiGLU</span>' +
+    '<button class="reset" id="resetBtn">reset run</button></div>';
+
+  document.querySelectorAll('.row').forEach(el => {
+    const d = el.getAttribute('data-day');
+    el.addEventListener('click', () => toggle(d));
+    el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(d); } });
+  });
+  document.getElementById('resetBtn').addEventListener('click', reset);
+}
+
+load();
+</script>
+</body>
+</html>

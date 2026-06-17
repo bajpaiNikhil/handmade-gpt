@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPT from scratch — campaign map</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Archivo:wght@600;700;800;900&display=swap');
+  :root{
+    --bg:#0c0d10; --panel:#15171c; --panel-2:#1b1e25; --line:#2a2e38;
+    --ink:#e7e9ee; --ink-dim:#9aa0ad; --ink-faint:#5b616e;
+    --amber:#e8a33d; --ember:#ee4c2c; --done:#3ddc84; --save:#5aa9ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);padding:16px;font-family:'JetBrains Mono',monospace;}
+  #root{color:var(--ink);background:var(--bg);border-radius:14px;overflow:hidden;border:1px solid var(--line);max-width:760px;margin:0 auto;}
+  .head{padding:28px 28px 24px;border-bottom:1px solid var(--line);
+    background:radial-gradient(130% 150% at 0% 0%,rgba(238,76,44,0.12),transparent 55%),var(--panel);}
+  .eyebrow{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:12px;}
+  .title{font-family:'Archivo',sans-serif;font-weight:900;font-size:26px;line-height:1.1;letter-spacing:-.02em;}
+  .title .accent{color:var(--ember);}
+  .sub{margin-top:10px;font-size:12.5px;color:var(--ink-dim);line-height:1.55;}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:18px;font-size:11px;color:var(--ink-dim);}
+  .legend span{display:inline-flex;align-items:center;gap:7px;}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+  .body{padding:8px 24px 24px;}
+
+  .world{margin-top:26px;}
+  .world-head{display:flex;align-items:baseline;gap:12px;padding:0 4px 4px;}
+  .world-no{font-family:'Archivo',sans-serif;font-weight:900;font-size:13px;color:var(--ember);letter-spacing:.05em;}
+  .world-name{font-family:'Archivo',sans-serif;font-weight:800;font-size:15px;letter-spacing:.01em;}
+  .world-days{margin-left:auto;font-size:10.5px;color:var(--ink-faint);letter-spacing:.08em;text-transform:uppercase;}
+
+  .steps{border-left:2px solid var(--line);margin:10px 0 0 14px;padding:4px 0 4px 0;}
+  .step{position:relative;padding:9px 0 9px 26px;font-size:12.5px;color:var(--ink);line-height:1.5;}
+  .step::before{content:'';position:absolute;left:-7px;top:14px;width:11px;height:11px;border-radius:50%;background:var(--panel-2);border:2px solid var(--ink-faint);}
+  .step.boss::before{background:var(--amber);border-color:var(--amber);box-shadow:0 0 0 4px rgba(232,163,61,.15);}
+  .step b{color:var(--ink);font-weight:700;}
+  .step .meta{color:var(--ink-faint);}
+  .step .badge{display:inline-block;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle;}
+
+  .save{margin:18px 0 4px;padding:16px 18px;border-radius:11px;
+    background:linear-gradient(100deg,rgba(90,169,255,.10),rgba(90,169,255,.02));
+    border:1px solid rgba(90,169,255,.32);}
+  .save-top{display:flex;align-items:center;gap:10px;}
+  .save-flag{font-size:15px;}
+  .save-label{font-family:'Archivo',sans-serif;font-weight:800;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--save);}
+  .save-art{margin-left:auto;font-size:10px;color:var(--ink-faint);letter-spacing:.08em;text-transform:uppercase;}
+  .save-title{margin-top:8px;font-size:13.5px;font-weight:700;color:var(--ink);line-height:1.4;}
+  .save-why{margin-top:5px;font-size:11.5px;color:var(--ink-dim);line-height:1.5;}
+
+  .foot{border-top:1px solid var(--line);padding:18px 28px;background:var(--panel);font-size:11.5px;color:var(--ink-dim);line-height:1.6;}
+  .foot b{color:var(--amber);font-weight:700;}
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="head">
+    <div class="eyebrow">campaign map // 0 &rarr; your own language model</div>
+    <div class="title">Build a <span class="accent">GPT</span> from scratch</div>
+    <div class="sub">Five worlds. Four save points &mdash; each one is a Medium article that banks what you just learned. Beat a boss, write it up, move on. The day-by-day checklist (separate tracker) covers Worlds 1&ndash;2.</div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--ink-faint)"></i> step</span>
+      <span><i class="dot" style="background:var(--amber)"></i> boss / milestone</span>
+      <span><i class="dot" style="background:var(--save)"></i> save point = article</span>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <div class="world">
+      <div class="world-head"><span class="world-no">PRE</span><span class="world-name">Tutorial: make backprop stop being magic</span><span class="world-days">side quest</span></div>
+      <div class="steps">
+        <div class="step"><b>Watch Karpathy's micrograd video</b> &amp; ideally code along. <span class="meta">You won't use this engine to train &mdash; it's so the autograd in Worlds 1+ is never a black box.</span></div>
+      </div>
+    </div>
+
+    <div class="world">
+      <div class="world-head"><span class="world-no">W1</span><span class="world-name">The Skeleton</span><span class="world-days">Days 1&ndash;5</span></div>
+      <div class="steps">
+        <div class="step"><b>Data + bigram + loss.</b> <span class="meta">A full training loop that emits garbage. The whole machine exists before any attention.</span></div>
+        <div class="step"><b>The weighted-average-of-the-past trick.</b> <span class="meta">Why attention is just aggregation &mdash; before you type Q/K/V.</span></div>
+        <div class="step boss"><b>First self-attention head.</b> <span class="badge">mini-boss</span> <span class="meta">Hand-typed Q,K,V, mask, softmax. The conceptual leap of the whole project.</span></div>
+      </div>
+    </div>
+
+    <div class="world">
+      <div class="world-head"><span class="world-no">W2</span><span class="world-name">The Block</span><span class="world-days">Days 6&ndash;11</span></div>
+      <div class="steps">
+        <div class="step"><b>Multi-head &rarr; MLP &rarr; residuals &rarr; LayerNorm.</b> <span class="meta">Assemble one real transformer block, every layer your own.</span></div>
+        <div class="step boss"><b>Stack blocks, scale, train on MPS.</b> <span class="badge">BOSS</span> <span class="meta">Output: Shakespeare-flavored text that actually scans. You built a working GPT.</span></div>
+      </div>
+    </div>
+
+    <div class="save">
+      <div class="save-top"><span class="save-flag">&#127937;</span><span class="save-label">Save point</span><span class="save-art">Article 1</span></div>
+      <div class="save-title">"I built a GPT from scratch on my MacBook &mdash; every layer by hand"</div>
+      <div class="save-why">The big satisfying one. Lookup table &rarr; attention &rarr; working transformer, with the loss dropping below 4.17. Strongest hook of the series; this is the piece that gets cited.</div>
+    </div>
+
+    <div class="world">
+      <div class="world-head"><span class="world-no">W3</span><span class="world-name">The Modern Recipe</span><span class="world-days">the 2026 swaps</span></div>
+      <div class="steps">
+        <div class="step"><b>LayerNorm &rarr; RMSNorm.</b> <span class="meta">One swap, measure before/after.</span></div>
+        <div class="step"><b>Absolute positions &rarr; RoPE.</b> <span class="meta">Rotate position into Q and K.</span></div>
+        <div class="step boss"><b>GELU MLP &rarr; SwiGLU.</b> <span class="badge">BOSS</span> <span class="meta">Now it's architecturally the same family as Llama 3 / Gemma. You built that.</span></div>
+      </div>
+    </div>
+
+    <div class="save">
+      <div class="save-top"><span class="save-flag">&#127937;</span><span class="save-label">Save point</span><span class="save-art">Article 2</span></div>
+      <div class="save-title">"Turning my toy GPT into a Llama-shaped one: RoPE, RMSNorm &amp; SwiGLU, one swap at a time"</div>
+      <div class="save-why">Each swap is a clean before/after with a number attached &mdash; exactly the kind of concrete, gap-filling piece that performs and that LLMs cite.</div>
+    </div>
+
+    <div class="world">
+      <div class="world-head"><span class="world-no">W4</span><span class="world-name">Real Language</span><span class="world-days">tokenizer + better data</span></div>
+      <div class="steps">
+        <div class="step"><b>Hand-write a BPE tokenizer.</b> <span class="meta">~100 lines. No more char-level.</span></div>
+        <div class="step boss"><b>Retrain on TinyStories.</b> <span class="badge">BOSS</span> <span class="meta">Output crosses from gibberish to coherent simple English: "Once upon a time there was a little dog&hellip;"</span></div>
+      </div>
+    </div>
+
+    <div class="save">
+      <div class="save-top"><span class="save-flag">&#127937;</span><span class="save-label">Save point</span><span class="save-art">Article 3</span></div>
+      <div class="save-title">"From Shakespeare gibberish to 'once upon a time': adding a real tokenizer"</div>
+      <div class="save-why">The payoff piece &mdash; the model finally says something a human reads as English. Great visual before/after.</div>
+    </div>
+
+    <div class="world">
+      <div class="world-head"><span class="world-no">W5</span><span class="world-name">On Device</span><span class="world-days">capstone &mdash; your turf</span></div>
+      <div class="steps">
+        <div class="step"><b>Export &amp; quantize to GGUF (4-bit).</b> <span class="meta">Shrink it to fit a phone.</span></div>
+        <div class="step boss"><b>Run it on Android</b> via llama.cpp + JNI or MediaPipe. <span class="badge">FINAL BOSS</span> <span class="meta">A language model you built end-to-end, running on a device you shipped apps to. Closes the loop with your day job.</span></div>
+      </div>
+    </div>
+
+    <div class="save">
+      <div class="save-top"><span class="save-flag">&#127942;</span><span class="save-label">Final save point</span><span class="save-art">Article 4</span></div>
+      <div class="save-title">"I trained a language model from scratch and ran it on my phone"</div>
+      <div class="save-why">The capstone that ties the whole series to your Android expertise &mdash; the angle almost nobody else writing "build a GPT" tutorials can credibly take.</div>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <b>How to play:</b> beat the steps in a world, fight the boss, then write the save-point article before moving on &mdash; the writing is what locks the learning in (and feeds your Medium pipeline). Worlds 1&ndash;2 are the current ~2.5-week sprint on the day tracker. Worlds 3&ndash;5 are open-ended; pace them however you like.
+  </div>
+</div>
+</body>
+</html>
