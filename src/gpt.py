@@ -27,11 +27,14 @@ print(f"corpus: {len(text):,} chars")
 # stoi: char → int   ("A" → 0, "B" → 1, …)
 # itos: int  → char  (0 → "A", 1 → "B", …)
 chars      = sorted(set(text))
+print(chars)
 vocab_size = len(chars)          # 65 for tiny Shakespeare
 print(f"vocab size: {vocab_size}")
 
 stoi = {ch: i for i, ch in enumerate(chars)}
+print(stoi)
 itos = {i: ch for i, ch in enumerate(chars)}
+print(itos)
 
 encode = lambda s: [stoi[c] for c in s]           # "Hi" → [32, 47]
 decode = lambda l: ''.join([itos[i] for i in l])  # [32, 47] → "Hi"
