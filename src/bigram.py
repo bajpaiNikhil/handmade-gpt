@@ -7,7 +7,15 @@ No memory of anything before that. Just: "given this char, what comes next?"
 
 This will produce terrible output — that's the point.
 It proves the full pipeline (data → model → loss → generate) works
-before we add any intelligence on Day 3 onward.
+before we add any intelligence on Day 4 onward.
+
+Day 3 — Train Loop Cleanup + estimate_loss()
+---------------------------------------------
+The loss printed during Day 2's training was a single noisy batch (32
+examples). estimate_loss() fixes that: it averages loss over many batches,
+on BOTH the train split and the never-trained-on val split, under
+torch.no_grad(). That gives a clean signal of whether the model is actually
+learning, and whether it's overfitting (train improving while val doesn't).
 """
 
 import os
@@ -24,7 +32,7 @@ import torch.nn.functional as F
 device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 
 print("=" * 60)
-print("  DAY 2 — BIGRAM LANGUAGE MODEL")
+print("  DAY 2/3 — BIGRAM LANGUAGE MODEL + LOSS ESTIMATION")
 print("=" * 60)
 print(f"\n[device] running on: {device}")
 
@@ -207,18 +215,66 @@ print(f"        → all roughly similar small random values — model has no ide
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 8 — Training Loop
+# STEP 8 — Loss Estimation Helper  (Day 3)
+# ─────────────────────────────────────────────────────────────────────────────
+# Problem: a single get_batch() loss is noisy. batch_size=4 * block_size=8
+# = 32 examples — a tiny, high-variance sample. One step printing
+# "loss: 2.3" could just be a lucky (or unlucky) batch, not real progress.
+#
+# Fix: average the loss over many batches before reporting it — for BOTH
+# splits:
+#   train loss → is the model fitting the data it has seen?
+#   val loss   → is it generalising to text it has NEVER trained on?
+# val_data has existed since Day 1's split, but nothing has read it until
+# now. If train loss keeps dropping while val loss stalls or rises, that's
+# overfitting — memorising instead of learning patterns. Unlikely for a
+# 4,225-parameter table, but the check is free, and it'll matter once the
+# model has millions of parameters.
+#
+# @torch.no_grad() disables autograd for everything inside the function.
+# This is a measurement, not a training step — there's no loss.backward()
+# or optimizer.step() in here. Without no_grad, PyTorch would still build a
+# full backward graph for every eval batch: wasted memory and time for
+# gradients that would never be used.
+eval_iters    = 200    # batches to average per split — higher = less noisy, slower
+eval_interval = 1_000  # how often (in training steps) to run this check
+max_iters     = 10_000
+
+@torch.no_grad()
+def estimate_loss():
+    out = {}
+    model.eval()    # tells the model "we're evaluating, not training". A no-op
+                    # for this bigram table — no dropout, no layernorm yet — but
+                    # that flips once those land (Day 9+), so the habit starts here.
+    for split in ['train', 'val']:
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            X, Y = get_batch(split)
+            _, loss = model(X, Y)
+            losses[k] = loss.item()
+        out[split] = losses.mean()
+    model.train()   # switch back before resuming the training loop
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 9 — Training Loop
 # ─────────────────────────────────────────────────────────────────────────────
 # AdamW: an improved version of gradient descent.
 # Each step it looks at the loss gradient and nudges the weights in the right direction.
 # lr (learning rate) = how big a nudge per step. 1e-3 is a safe default for small models.
-print("\n[train] starting training (10,000 steps)...")
+print(f"\n[train] starting training ({max_iters:,} steps)...")
 print(f"        each step processes {batch_size * block_size} characters")
-print(f"        printing loss every 1,000 steps — watch it drop below 4.17\n")
+print(f"        checking train/val loss every {eval_interval:,} steps (avg of {eval_iters} batches)\n")
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
-for step in range(10_000):
+for step in range(max_iters):
+    # Periodic check-in: a clean, low-variance reading instead of one noisy batch.
+    if step % eval_interval == 0 or step == max_iters - 1:
+        losses = estimate_loss()
+        print(f"  step {step:5d} / {max_iters}   train loss: {losses['train']:.4f}   val loss: {losses['val']:.4f}")
+
     xb, yb = get_batch('train')        # fresh random batch
     logits, loss = model(xb, yb)       # forward pass → get loss
 
@@ -226,11 +282,11 @@ for step in range(10_000):
     loss.backward()                         # backprop: compute how much each weight contributed to the loss
     optimizer.step()                        # update weights in the direction that lowers loss
 
-    if step % 1_000 == 0:
-        print(f"  step {step:5d} / 10000   loss: {loss.item():.4f}")
-
-print(f"\n[train] done.  final loss: {loss.item():.4f}")
-print(f"[train] the loss dropped from ≈4.17 (random) → below 3.0.")
+final_losses = estimate_loss()
+# TODO Day 6+: replace 0.05 with a noise-aware threshold using losses.std() — see Day 3 discussion
+gap = (final_losses['val'] - final_losses['train']).item()
+print(f"\n[train] done.  final train loss: {final_losses['train']:.4f}   final val loss: {final_losses['val']:.4f}")
+print(f"[train] train/val gap: {gap:+.4f}  ({'no real overfitting' if gap < 0.05 else 'val notably worse — overfitting'})")
 print(f"[train] the model has learned letter frequencies and common pairs.")
 print(f"[train] it still has NO memory beyond one character — that's Day 5's job.")
 
@@ -249,7 +305,7 @@ for rank, (score, idx) in enumerate(zip(top5.values.tolist(), top5.indices.tolis
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 9 — Generate Text
+# STEP 10 — Generate Text
 # ─────────────────────────────────────────────────────────────────────────────
 # Seed with token 0, which maps to '\n' (newline) — a neutral starting point.
 # The model then rolls forward one character at a time.
@@ -266,5 +322,5 @@ print("─" * 60)
 print(decode(generated))
 print("─" * 60)
 
-print("\n[done] Day 2 complete.")
-print("       next: Day 3 — train loop cleanup + estimate_loss with torch.no_grad()")
+print("\n[done] Day 3 complete.")
+print("       next: Day 4 — weighted-average-of-the-past trick")

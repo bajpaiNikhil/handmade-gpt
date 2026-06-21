@@ -12,9 +12,9 @@ A five-world campaign from a blank tensor to an on-device language model.
 ### W1 — The Skeleton *(data → bigram → first attention head)*
 - [x] Day 1 — Setup + data pipeline
 - [x] Day 2 — Bigram model
-- [ ] Day 3 — Train loop + read the loss
-- [ ] Day 4 — Weighted-average-of-the-past trick
-- [ ] Day 5 — First self-attention head
+- [x] Day 3 — Train loop + read the loss
+- [x] Day 4 — Weighted-average-of-the-past trick
+- [x] Day 5 — First self-attention head
 
 ### W2 — The Block *(multi-head, MLP, residuals, layernorm, scale → working GPT)*
 - [ ] Day 6 — Multi-head attention
