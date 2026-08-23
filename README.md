@@ -17,7 +17,7 @@ A five-world campaign from a blank tensor to an on-device language model.
 - [x] Day 5 — First self-attention head
 
 ### W2 — The Block *(multi-head, MLP, residuals, layernorm, scale → working GPT)*
-- [ ] Day 6 — Multi-head attention
+- [x] Day 6 — Multi-head attention
 - [ ] Day 7 — FeedForward MLP
 - [ ] Day 8 — Residual connections
 - [ ] Day 9 — LayerNorm (pre-norm)

@@ -4,6 +4,32 @@ Newest entry on top.
 
 ---
 
+## Day 6 — Multi-head attention
+
+New file `src/multi_head_attention.py`. Proved the mechanism on toy tensors
+first: instantiated two `Head`s on identical input and confirmed their
+`wei` rows for the same token genuinely diverge (random init gives each
+head different Q/K/V weights, so each learns to attend differently — the
+whole premise of running heads in parallel). Built `MultiHeadAttention`:
+N `Head` instances run side by side, outputs concatenated back to
+`n_embd` width, then passed through one learned `proj` layer so the model
+can mix what different heads found (a raw concat alone can't combine
+across heads). Checked the parameter math: 4 heads of `head_size=8` cost
+exactly the same Q/K/V parameters as 1 head of `head_size=32` (3,072
+either way) — `proj` is the only extra cost (1,056 params).
+
+Wired it into `attention_lm.py`, replacing Day 5's single `Head` in a new
+`MultiHeadAttentionLanguageModel` alongside the existing single-head one,
+and retrained all three models (bigram, single-head, multi-head) under
+identical conditions (`block_size=8`, `batch_size=4`, 10,000 steps) for a
+fair 3-way comparison. Final val loss: bigram 2.5390, single-head 2.4496,
+multi-head 2.3217 — multi-head beat single-head by 0.1278 nats for ~14%
+more parameters (8,609 vs 7,553). Generated text is still gibberish for
+all three — expected with no MLP, residuals, or LayerNorm yet (Days 7-9).
+Dropout stays deferred, not silently added here.
+
+---
+
 ## Detour — one real attention head vs. the Day 2/3 bigram, on real Shakespeare
 
 New file `src/attention_lm.py`. Days 4-5 only proved the attention mechanism

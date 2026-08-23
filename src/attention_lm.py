@@ -1,5 +1,5 @@
 """
-Detour — A Minimal Self-Attention Language Model on Real Shakespeare
+Detour + Day 6 — Self-Attention Language Models on Real Shakespeare
 ------------------------------------------------------------------------
 Days 4-5 (causal_average.py) proved the self-attention mechanism on toy
 random tensors — correct math, but disconnected from any real vocabulary
@@ -12,11 +12,16 @@ can look back further than one character" stops being a toy idea.
 This is NOT Day 10's "Assemble the Block + stack" — that day combines
 MULTI-head attention, a FeedForward MLP, residual connections, and
 LayerNorm into a real, stacked Transformer block. This is a much smaller
-preview: a single head, no MLP, no residuals, no LayerNorm, no stacking.
+preview: attention only, no MLP, no residuals, no LayerNorm, no stacking.
 
-block_size and batch_size are kept IDENTICAL to bigram.py on purpose, so
-the only thing that differs between the two models trained below is the
-architecture — making the final loss comparison a fair one.
+Day 6 update: multi_head_attention.py proved MultiHeadAttention on toy
+tensors — this file wires it into the same real-data setup the single
+head already used, so the loss comparison below is now 3-way: bigram
+(1 token of memory) vs single-head (Day 5) vs multi-head (Day 6).
+
+block_size and batch_size are kept IDENTICAL across all three models on
+purpose, so architecture is the only thing that differs between them —
+making the final loss comparison a fair one.
 """
 
 import os
@@ -88,7 +93,7 @@ class BigramLanguageModel(nn.Module):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 3 — The Attention Model: Token + Position Embeddings, One Head, LM Head
+# STEP 3 — Attention Models: Token + Position Embeddings, Attention, LM Head
 # ─────────────────────────────────────────────────────────────────────────────
 # Why a separate POSITION embedding now, when the bigram model never needed
 # one: the bigram model's prediction depends only on the current token's
@@ -101,8 +106,7 @@ class BigramLanguageModel(nn.Module):
 # token's embedding becomes token_meaning + position, summed together.
 n_embd = 32   # embedding dimension — distinct from vocab_size now (unlike
               # the bigram model, where the embedding table's columns WERE
-              # the logits). head_size == n_embd here since there's only
-              # one head; splitting n_embd across multiple heads is Day 6.
+              # the logits).
 
 class Head(nn.Module):
     """One self-attention head — same mechanism proved in causal_average.py."""
@@ -129,7 +133,31 @@ class Head(nn.Module):
         return wei @ v                                       # (B, T, head_size)
 
 
-class AttentionLanguageModel(nn.Module):
+class MultiHeadAttention(nn.Module):
+    """Day 6 — several Head instances run in parallel over the same input,
+    each with independently-initialized Q/K/V weights so each is free to
+    specialize in a different attention pattern. Outputs are concatenated
+    back to n_embd width, then passed through one learned projection so the
+    model can mix what the different heads found — a plain concat alone
+    would just glue their answers side by side with no way to combine them.
+    Proved on toy tensors in multi_head_attention.py; this is the same
+    class wired into a real trained model."""
+
+    def __init__(self, num_heads, head_size, n_embd, block_size):
+        super().__init__()
+        self.heads = nn.ModuleList([
+            Head(n_embd, head_size, block_size) for _ in range(num_heads)
+        ])
+        self.proj = nn.Linear(n_embd, n_embd)
+
+    def forward(self, x):
+        out = torch.cat([h(x) for h in self.heads], dim=-1)  # (B, T, num_heads*head_size)
+        return self.proj(out)                                  # (B, T, n_embd)
+
+
+class SingleHeadAttentionLanguageModel(nn.Module):
+    """Day 5 — one attention head, head_size == n_embd."""
+
     def __init__(self, vocab_size, n_embd, block_size):
         super().__init__()
         self.block_size = block_size
@@ -168,6 +196,46 @@ class AttentionLanguageModel(nn.Module):
         return idx
 
 
+class MultiHeadAttentionLanguageModel(nn.Module):
+    """Day 6 — identical to SingleHeadAttentionLanguageModel except sa_head
+    is a MultiHeadAttention (4 heads of head_size=8 instead of 1 head of
+    head_size=32). Everything else — embeddings, lm_head, generate — is
+    unchanged, since MultiHeadAttention's output shape (B, T, n_embd)
+    matches Head's exactly."""
+
+    def __init__(self, vocab_size, n_embd, block_size, num_heads):
+        super().__init__()
+        self.block_size = block_size
+        self.token_embedding_table    = nn.Embedding(vocab_size, n_embd)
+        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.sa_heads = MultiHeadAttention(num_heads, n_embd // num_heads, n_embd, block_size)
+        self.lm_head = nn.Linear(n_embd, vocab_size)
+
+    def forward(self, idx, targets=None):
+        B, T = idx.shape
+        tok_emb = self.token_embedding_table(idx)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=idx.device))
+        x = tok_emb + pos_emb
+        x = self.sa_heads(x)          # (B, T, n_embd) — blend of 4 independent heads
+        logits = self.lm_head(x)
+
+        loss = None
+        if targets is not None:
+            B, T, C = logits.shape
+            loss = F.cross_entropy(logits.view(B * T, C), targets.view(B * T))
+        return logits, loss
+
+    def generate(self, idx, max_new_tokens):
+        for _ in range(max_new_tokens):
+            idx_cond = idx[:, -self.block_size:]
+            logits, _ = self(idx_cond)
+            logits = logits[:, -1, :]
+            probs = F.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+            idx = torch.cat([idx, idx_next], dim=1)
+        return idx
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 4 — Loss Estimation Helper (Day 3's trick, generalized to take a model)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,7 +259,7 @@ def estimate_loss(model):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 5 — Train Both Models Under Identical Conditions
+# STEP 5 — Train All Three Models Under Identical Conditions
 # ─────────────────────────────────────────────────────────────────────────────
 def train(model, label):
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
@@ -208,27 +276,35 @@ def train(model, label):
     return estimate_loss(model)
 
 
+num_heads = 4   # n_embd(32) // num_heads(4) = head_size(8) — see multi_head_attention.py STEP 4
+
 bigram_model = BigramLanguageModel(vocab_size).to(device)
-attn_model   = AttentionLanguageModel(vocab_size, n_embd, block_size).to(device)
+single_model = SingleHeadAttentionLanguageModel(vocab_size, n_embd, block_size).to(device)
+multi_model  = MultiHeadAttentionLanguageModel(vocab_size, n_embd, block_size, num_heads).to(device)
 
 bigram_params = sum(p.numel() for p in bigram_model.parameters())
-attn_params   = sum(p.numel() for p in attn_model.parameters())
-print(f"\n[params] bigram model   : {bigram_params:,}")
-print(f"[params] attention model: {attn_params:,}")
+single_params = sum(p.numel() for p in single_model.parameters())
+multi_params  = sum(p.numel() for p in multi_model.parameters())
+print(f"\n[params] bigram model      : {bigram_params:,}")
+print(f"[params] single-head model : {single_params:,}")
+print(f"[params] multi-head model  : {multi_params:,}")
 
-bigram_final = train(bigram_model, "BIGRAM   ")
-attn_final   = train(attn_model,   "ATTENTION")
+bigram_final = train(bigram_model, "BIGRAM     ")
+single_final = train(single_model, "SINGLE-HEAD")
+multi_final  = train(multi_model,  "MULTI-HEAD ")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 6 — Compare: Loss + Generated Text, Side by Side
+# STEP 6 — Compare: Loss + Generated Text, Three-Way
 # ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
-print("  RESULT — Bigram (1 token of memory) vs Attention (8 tokens)")
+print("  RESULT — Bigram vs Single-Head (Day 5) vs Multi-Head (Day 6)")
 print("=" * 60)
-print(f"  bigram    final val loss: {bigram_final['val']:.4f}")
-print(f"  attention final val loss: {attn_final['val']:.4f}")
-print(f"  difference              : {(bigram_final['val'] - attn_final['val']).item():+.4f}  (positive = attention is better)")
+print(f"  bigram      final val loss: {bigram_final['val']:.4f}")
+print(f"  single-head final val loss: {single_final['val']:.4f}")
+print(f"  multi-head  final val loss: {multi_final['val']:.4f}")
+print(f"  multi-head vs single-head : {(single_final['val'] - multi_final['val']).item():+.4f}  (positive = multi-head is better)")
+print(f"  multi-head vs bigram      : {(bigram_final['val'] - multi_final['val']).item():+.4f}  (positive = multi-head is better)")
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 
@@ -237,10 +313,16 @@ print("─" * 60)
 print(decode(bigram_model.generate(context, max_new_tokens=300)[0].tolist()))
 print("─" * 60)
 
-print("\n[generate] ATTENTION sample:")
+print("\n[generate] SINGLE-HEAD sample:")
 print("─" * 60)
-print(decode(attn_model.generate(context, max_new_tokens=300)[0].tolist()))
+print(decode(single_model.generate(context, max_new_tokens=300)[0].tolist()))
 print("─" * 60)
 
-print("\n[done] Detour complete — one real attention head, trained and compared against the Day 2/3 baseline.")
-print("       back to the roadmap: Day 6 — multiple heads running in parallel (multi-head attention).")
+print("\n[generate] MULTI-HEAD sample:")
+print("─" * 60)
+print(decode(multi_model.generate(context, max_new_tokens=300)[0].tolist()))
+print("─" * 60)
+
+print("\n[done] Day 6 complete — multi-head attention trained on real data, compared against")
+print("       Day 5's single head and the Day 2/3 bigram baseline.")
+print("       next: Day 7 — the FeedForward MLP (attention communicates, MLP computes).")
