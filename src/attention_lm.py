@@ -236,6 +236,69 @@ class MultiHeadAttentionLanguageModel(nn.Module):
         return idx
 
 
+class FeedForward(nn.Module):
+    """Day 7 — per-token feed-forward network: n_embd -> 4*n_embd -> GELU ->
+    n_embd. Same weights applied identically at every position (proved on
+    toy tensors in feedforward.py). This is the "desk-work" step: attention
+    only ever produces a LINEAR blend of value vectors, so no matter how
+    many heads run, the model still cannot react to what it now holds —
+    only mix. FeedForward adds that missing nonlinear, per-token reasoning
+    step right after attention's blend."""
+
+    def __init__(self, n_embd, expansion=4):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, expansion * n_embd),
+            nn.GELU(),
+            nn.Linear(expansion * n_embd, n_embd),
+        )
+
+    def forward(self, x):
+        return self.net(x)   # (B, T, n_embd) -> (B, T, n_embd)
+
+
+class MultiHeadAttentionFeedForwardLanguageModel(nn.Module):
+    """Day 7 — identical to MultiHeadAttentionLanguageModel, with one new
+    step: after attention gathers context (communicate), FeedForward
+    processes each token's result (compute), before lm_head reads out
+    logits. No residual connections or LayerNorm yet — those are Days 8-9,
+    and we want a clean before/after loss measurement for the MLP alone."""
+
+    def __init__(self, vocab_size, n_embd, block_size, num_heads):
+        super().__init__()
+        self.block_size = block_size
+        self.token_embedding_table    = nn.Embedding(vocab_size, n_embd)
+        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.sa_heads = MultiHeadAttention(num_heads, n_embd // num_heads, n_embd, block_size)
+        self.ffwd = FeedForward(n_embd)
+        self.lm_head = nn.Linear(n_embd, vocab_size)
+
+    def forward(self, idx, targets=None):
+        B, T = idx.shape
+        tok_emb = self.token_embedding_table(idx)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=idx.device))
+        x = tok_emb + pos_emb
+        x = self.sa_heads(x)          # (B, T, n_embd) — COMMUNICATE: gather context
+        x = self.ffwd(x)              # (B, T, n_embd) — COMPUTE: react to what was gathered
+        logits = self.lm_head(x)
+
+        loss = None
+        if targets is not None:
+            B, T, C = logits.shape
+            loss = F.cross_entropy(logits.view(B * T, C), targets.view(B * T))
+        return logits, loss
+
+    def generate(self, idx, max_new_tokens):
+        for _ in range(max_new_tokens):
+            idx_cond = idx[:, -self.block_size:]
+            logits, _ = self(idx_cond)
+            logits = logits[:, -1, :]
+            probs = F.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+            idx = torch.cat([idx, idx_next], dim=1)
+        return idx
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 4 — Loss Estimation Helper (Day 3's trick, generalized to take a model)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -281,30 +344,39 @@ num_heads = 4   # n_embd(32) // num_heads(4) = head_size(8) — see multi_head_a
 bigram_model = BigramLanguageModel(vocab_size).to(device)
 single_model = SingleHeadAttentionLanguageModel(vocab_size, n_embd, block_size).to(device)
 multi_model  = MultiHeadAttentionLanguageModel(vocab_size, n_embd, block_size, num_heads).to(device)
+ffwd_model   = MultiHeadAttentionFeedForwardLanguageModel(vocab_size, n_embd, block_size, num_heads).to(device)
 
 bigram_params = sum(p.numel() for p in bigram_model.parameters())
 single_params = sum(p.numel() for p in single_model.parameters())
 multi_params  = sum(p.numel() for p in multi_model.parameters())
-print(f"\n[params] bigram model      : {bigram_params:,}")
-print(f"[params] single-head model : {single_params:,}")
-print(f"[params] multi-head model  : {multi_params:,}")
+ffwd_params   = sum(p.numel() for p in ffwd_model.parameters())
+print(f"\n[params] bigram model            : {bigram_params:,}")
+print(f"[params] single-head model       : {single_params:,}")
+print(f"[params] multi-head model        : {multi_params:,}")
+print(f"[params] multi-head + FFN model  : {ffwd_params:,}  "
+      f"({ffwd_params / multi_params:.2f}x multi-head-only — the FeedForward's ~8.3k params, "
+      f"as predicted in feedforward.py)")
 
 bigram_final = train(bigram_model, "BIGRAM     ")
 single_final = train(single_model, "SINGLE-HEAD")
 multi_final  = train(multi_model,  "MULTI-HEAD ")
+ffwd_final   = train(ffwd_model,   "MULTI+FFN  ")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 6 — Compare: Loss + Generated Text, Three-Way
+# STEP 6 — Compare: Loss + Generated Text, Four-Way
 # ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
-print("  RESULT — Bigram vs Single-Head (Day 5) vs Multi-Head (Day 6)")
+print("  RESULT — Bigram vs Single-Head (Day 5) vs Multi-Head (Day 6) vs Multi-Head+FFN (Day 7)")
 print("=" * 60)
-print(f"  bigram      final val loss: {bigram_final['val']:.4f}")
-print(f"  single-head final val loss: {single_final['val']:.4f}")
-print(f"  multi-head  final val loss: {multi_final['val']:.4f}")
-print(f"  multi-head vs single-head : {(single_final['val'] - multi_final['val']).item():+.4f}  (positive = multi-head is better)")
-print(f"  multi-head vs bigram      : {(bigram_final['val'] - multi_final['val']).item():+.4f}  (positive = multi-head is better)")
+print(f"  bigram          final train/val loss: {bigram_final['train']:.4f} / {bigram_final['val']:.4f}")
+print(f"  single-head     final train/val loss: {single_final['train']:.4f} / {single_final['val']:.4f}")
+print(f"  multi-head      final train/val loss: {multi_final['train']:.4f} / {multi_final['val']:.4f}")
+print(f"  multi-head+FFN  final train/val loss: {ffwd_final['train']:.4f} / {ffwd_final['val']:.4f}")
+print(f"  multi-head+FFN train/val gap: {(ffwd_final['val'] - ffwd_final['train']).item():+.4f}  "
+      f"(vs multi-head-only gap: {(multi_final['val'] - multi_final['train']).item():+.4f} — watch for overfitting)")
+print(f"  multi-head+FFN vs multi-head-only : {(multi_final['val'] - ffwd_final['val']).item():+.4f}  (positive = FFN helped)")
+print(f"  multi-head+FFN vs bigram          : {(bigram_final['val'] - ffwd_final['val']).item():+.4f}  (positive = FFN model is better)")
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 
@@ -323,6 +395,12 @@ print("─" * 60)
 print(decode(multi_model.generate(context, max_new_tokens=300)[0].tolist()))
 print("─" * 60)
 
-print("\n[done] Day 6 complete — multi-head attention trained on real data, compared against")
-print("       Day 5's single head and the Day 2/3 bigram baseline.")
-print("       next: Day 7 — the FeedForward MLP (attention communicates, MLP computes).")
+print("\n[generate] MULTI-HEAD + FFN sample:")
+print("─" * 60)
+print(decode(ffwd_model.generate(context, max_new_tokens=300)[0].tolist()))
+print("─" * 60)
+
+print("\n[done] Day 7 complete — FeedForward wired in after multi-head attention (communicate, then")
+print("       compute), trained on real data, compared against Day 6's multi-head, Day 5's single")
+print("       head, and the Day 2/3 bigram baseline.")
+print("       next: Day 8 — residual connections (x = x + sublayer(x)).")
