@@ -299,6 +299,51 @@ class MultiHeadAttentionFeedForwardLanguageModel(nn.Module):
         return idx
 
 
+class MultiHeadAttentionFeedForwardResidualLanguageModel(nn.Module):
+    """Day 8 — identical to MultiHeadAttentionFeedForwardLanguageModel except
+    each sublayer's output is now ADDED back onto its own input (the "express
+    lane" from residuals.py) instead of replacing it outright:
+    x = x + sa_heads(x)   and   x = x + ffwd(x)
+    Proved in residuals.py that this guarantees a gradient path that can
+    never be fully crushed no matter how small either sublayer's own
+    contribution gets. No LayerNorm or stacking yet (Days 9-10) — this is
+    the first NEARLY-complete transformer block."""
+
+    def __init__(self, vocab_size, n_embd, block_size, num_heads):
+        super().__init__()
+        self.block_size = block_size
+        self.token_embedding_table    = nn.Embedding(vocab_size, n_embd)
+        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.sa_heads = MultiHeadAttention(num_heads, n_embd // num_heads, n_embd, block_size)
+        self.ffwd = FeedForward(n_embd)
+        self.lm_head = nn.Linear(n_embd, vocab_size)
+
+    def forward(self, idx, targets=None):
+        B, T = idx.shape
+        tok_emb = self.token_embedding_table(idx)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=idx.device))
+        x = tok_emb + pos_emb
+        x = x + self.sa_heads(x)       # express lane around attention
+        x = x + self.ffwd(x)           # express lane around FeedForward
+        logits = self.lm_head(x)
+
+        loss = None
+        if targets is not None:
+            B, T, C = logits.shape
+            loss = F.cross_entropy(logits.view(B * T, C), targets.view(B * T))
+        return logits, loss
+
+    def generate(self, idx, max_new_tokens):
+        for _ in range(max_new_tokens):
+            idx_cond = idx[:, -self.block_size:]
+            logits, _ = self(idx_cond)
+            logits = logits[:, -1, :]
+            probs = F.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+            idx = torch.cat([idx, idx_next], dim=1)
+        return idx
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 4 — Loss Estimation Helper (Day 3's trick, generalized to take a model)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -345,38 +390,46 @@ bigram_model = BigramLanguageModel(vocab_size).to(device)
 single_model = SingleHeadAttentionLanguageModel(vocab_size, n_embd, block_size).to(device)
 multi_model  = MultiHeadAttentionLanguageModel(vocab_size, n_embd, block_size, num_heads).to(device)
 ffwd_model   = MultiHeadAttentionFeedForwardLanguageModel(vocab_size, n_embd, block_size, num_heads).to(device)
+resid_model  = MultiHeadAttentionFeedForwardResidualLanguageModel(vocab_size, n_embd, block_size, num_heads).to(device)
 
 bigram_params = sum(p.numel() for p in bigram_model.parameters())
 single_params = sum(p.numel() for p in single_model.parameters())
 multi_params  = sum(p.numel() for p in multi_model.parameters())
 ffwd_params   = sum(p.numel() for p in ffwd_model.parameters())
+resid_params  = sum(p.numel() for p in resid_model.parameters())
 print(f"\n[params] bigram model            : {bigram_params:,}")
 print(f"[params] single-head model       : {single_params:,}")
 print(f"[params] multi-head model        : {multi_params:,}")
 print(f"[params] multi-head + FFN model  : {ffwd_params:,}  "
       f"({ffwd_params / multi_params:.2f}x multi-head-only — the FeedForward's ~8.3k params, "
       f"as predicted in feedforward.py)")
+print(f"[params] multi-head + FFN + residual model: {resid_params:,}  "
+      f"(== multi-head+FFN params exactly? {resid_params == ffwd_params} — residuals add ZERO new "
+      f"parameters, only a change in wiring)")
 
 bigram_final = train(bigram_model, "BIGRAM     ")
 single_final = train(single_model, "SINGLE-HEAD")
 multi_final  = train(multi_model,  "MULTI-HEAD ")
 ffwd_final   = train(ffwd_model,   "MULTI+FFN  ")
+resid_final  = train(resid_model,  "MULTI+FFN+RESID")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 6 — Compare: Loss + Generated Text, Four-Way
+# STEP 6 — Compare: Loss + Generated Text, Five-Way
 # ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
-print("  RESULT — Bigram vs Single-Head (Day 5) vs Multi-Head (Day 6) vs Multi-Head+FFN (Day 7)")
+print("  RESULT — Bigram vs Single-Head (D5) vs Multi-Head (D6) vs Multi-Head+FFN (D7) vs +Residual (D8)")
 print("=" * 60)
-print(f"  bigram          final train/val loss: {bigram_final['train']:.4f} / {bigram_final['val']:.4f}")
-print(f"  single-head     final train/val loss: {single_final['train']:.4f} / {single_final['val']:.4f}")
-print(f"  multi-head      final train/val loss: {multi_final['train']:.4f} / {multi_final['val']:.4f}")
-print(f"  multi-head+FFN  final train/val loss: {ffwd_final['train']:.4f} / {ffwd_final['val']:.4f}")
-print(f"  multi-head+FFN train/val gap: {(ffwd_final['val'] - ffwd_final['train']).item():+.4f}  "
-      f"(vs multi-head-only gap: {(multi_final['val'] - multi_final['train']).item():+.4f} — watch for overfitting)")
-print(f"  multi-head+FFN vs multi-head-only : {(multi_final['val'] - ffwd_final['val']).item():+.4f}  (positive = FFN helped)")
-print(f"  multi-head+FFN vs bigram          : {(bigram_final['val'] - ffwd_final['val']).item():+.4f}  (positive = FFN model is better)")
+print(f"  bigram              final train/val loss: {bigram_final['train']:.4f} / {bigram_final['val']:.4f}")
+print(f"  single-head         final train/val loss: {single_final['train']:.4f} / {single_final['val']:.4f}")
+print(f"  multi-head          final train/val loss: {multi_final['train']:.4f} / {multi_final['val']:.4f}")
+print(f"  multi-head+FFN      final train/val loss: {ffwd_final['train']:.4f} / {ffwd_final['val']:.4f}")
+print(f"  multi-head+FFN+resid final train/val loss: {resid_final['train']:.4f} / {resid_final['val']:.4f}")
+print(f"  +residual train/val gap: {(resid_final['val'] - resid_final['train']).item():+.4f}  "
+      f"(vs no-residual FFN gap: {(ffwd_final['val'] - ffwd_final['train']).item():+.4f})")
+print(f"  +residual vs no-residual (same architecture, just wiring) : "
+      f"{(ffwd_final['val'] - resid_final['val']).item():+.4f}  (positive = residual helped)")
+print(f"  +residual vs bigram : {(bigram_final['val'] - resid_final['val']).item():+.4f}  (positive = residual model is better)")
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 
@@ -400,7 +453,12 @@ print("─" * 60)
 print(decode(ffwd_model.generate(context, max_new_tokens=300)[0].tolist()))
 print("─" * 60)
 
-print("\n[done] Day 7 complete — FeedForward wired in after multi-head attention (communicate, then")
-print("       compute), trained on real data, compared against Day 6's multi-head, Day 5's single")
-print("       head, and the Day 2/3 bigram baseline.")
-print("       next: Day 8 — residual connections (x = x + sublayer(x)).")
+print("\n[generate] MULTI-HEAD + FFN + RESIDUAL sample:")
+print("─" * 60)
+print(decode(resid_model.generate(context, max_new_tokens=300)[0].tolist()))
+print("─" * 60)
+
+print("\n[done] Day 8 complete — residual connections wired around attention and FeedForward,")
+print("       trained on real data, compared against Day 7's no-residual version and everything")
+print("       before it.")
+print("       next: Day 9 — LayerNorm (stabilizing activation magnitudes across the stack).")
